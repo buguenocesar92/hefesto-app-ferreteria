@@ -1,0 +1,188 @@
+/*
+ * Estilos comunes de la interfaz de la ferreteria.
+ *
+ * Son pocos y a proposito: en un mostrador y en una bodega la pantalla se usa
+ * con apuro, a veces de pie y con luz mala. Botones grandes, texto grande,
+ * contraste alto y numeros alineados a la derecha para que se comparen de un
+ * vistazo.
+ */
+
+:root {
+  --color-texto: #1f2933;
+  --color-suave: #627d98;
+  --color-linea: #e4e7eb;
+  --color-primario: #2b6cb0;
+  --color-fondo: #f0f4f8;
+
+  /* La diferencia de caja se muestra en dos colores y en ningun otro caso
+     se usan: el verde es sobrante y el rojo es faltante. */
+  --color-sobrante: #1f7a4d;
+  --color-faltante: #b02a2a;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: var(--color-texto);
+  font-size: 16px;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+h3 {
+  font-size: 1rem;
+  margin-top: 1.5rem;
+}
+
+a {
+  color: var(--color-primario);
+}
+
+code {
+  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* Botones: grandes, porque se usan con apuro. */
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--color-primario);
+  border-radius: 0.375rem;
+  background: #ffffff;
+  color: var(--color-primario);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.boton:hover {
+  background: #f0f7ff;
+}
+
+.boton--principal {
+  background: var(--color-primario);
+  color: #ffffff;
+}
+
+.boton--principal:hover {
+  background: #22548c;
+}
+
+.boton--discreto {
+  border-color: var(--color-linea);
+  color: var(--color-texto);
+}
+
+.boton--discreto:hover {
+  background: var(--color-fondo);
+}
+
+.boton--peligro {
+  border-color: var(--color-faltante);
+  color: var(--color-faltante);
+}
+
+.boton--peligro:hover {
+  background: #fdf0f0;
+}
+
+.boton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Formularios */
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd2d9;
+  border-radius: 0.375rem;
+  background: #ffffff;
+  color: inherit;
+}
+
+textarea {
+  resize: vertical;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-primario);
+  outline-offset: 2px;
+}
+
+/* Las cifras del stock y del dinero, siempre con la misma jerarquia. */
+.numero {
+  font-variant-numeric: tabular-nums;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.tabla th,
+.tabla td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-linea);
+  text-align: left;
+}
+
+.tabla th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-suave);
+}
+
+.tabla td.numero,
+.tabla th.numero {
+  text-align: right;
+}
+
+.aviso {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background: #fff8e6;
+  border: 1px solid #f0c674;
+  margin-bottom: 1rem;
+}
+
+.error {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  background: #fdf0f0;
+  border: 1px solid var(--color-faltante);
+  color: var(--color-faltante);
+  margin-bottom: 1rem;
+}
+
+/* La diferencia de caja: el numero que el dueño mira todas las noches. */
+.sobrante {
+  color: var(--color-sobrante);
+  font-weight: 700;
+}
+
+.faltante {
+  color: var(--color-faltante);
+  font-weight: 700;
+}
+
+.sin-diferencia {
+  color: var(--color-suave);
+}

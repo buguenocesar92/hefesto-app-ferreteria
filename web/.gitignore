@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# Dependencias y artefactos de la interfaz (Nuxt)
+# ---------------------------------------------------------------------------
+# El esqueleto de Nuxt lo genera el gestor de paquetes, no el repositorio.
+
+node_modules/
+.nuxt/
+.output/
+.data/
+.cache/
+
+# `.env` real nunca se versiona. La plantilla si.
+.env
+.env.production
+
+# Archivos del editor y del sistema
+.DS_Store
+Thumbs.db
+*.log

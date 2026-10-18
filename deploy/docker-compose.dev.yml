@@ -1,0 +1,262 @@
+# ---------------------------------------------------------------------------
+# Gestión de Ferreteria: entorno de DESARROLLO
+# ---------------------------------------------------------------------------
+#
+# Uso:
+#   docker compose -f deploy/docker-compose.dev.yml up -d
+#   docker compose -f deploy/docker-compose.dev.yml exec api php artisan migrate
+#
+# QUE HAY Y QUE NO HAY ACA
+# ------------------------
+#  - El código SI se monta como volumen: se recompila al guardar, que es lo
+#    que se quiere al desarrollar.
+#  - PostgreSQL, Redis y Authentik tienen puertos publicados en `127.0.0.1`
+#    para poder entrar con una herramienta de escritorio. En producción eso
+#    NO existe: ver deploy/docker-compose.prod.yml, donde solo Caddy pública.
+#  - La clave de la aplicación y las contrasenas estan en `.env` de
+#    desarrollo. Son de juguete y no sirven para nada.
+#
+# ---------------------------------------------------------------------------
+
+name: ferreteria-dev
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+services:
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL.
+  #
+  # DOS ROLES, Y NO UNO
+  # -------------------
+  # `POSTGRES_USER` es el rol de ARRANQUE: la imagen oficial ejecuta
+  # `initdb --username="$POSTGRES_USER"` y ese rol nace superusuario. Solo
+  # se usa para crear la base y para las tareas administrativas. La
+  # aplicacion NUNCA conecta con el.
+  #
+  # El rol de la aplicacion (`DB_USERNAME`) lo crea
+  # `deploy/postgres/inicializar-rol.sh` al inicializar el volumen, con
+  # NOSUPERUSER y NOBYPASSRLS explicitos. Le da la propiedad de la base
+  # para que las migraciones de Laravel puedan crear el esquema.
+  #
+  # POR QUE IMPORTA: la documentacion de PostgreSQL 18 dice que los
+  # superusuarios "always bypass the row security system", y que
+  # `FORCE ROW LEVEL SECURITY` sujeta solo al DUENO de la tabla, no al
+  # superusuario. Con un solo rol las politicas no se aplicarian y el
+  # aislamiento entre empresas seria decorativo. Ver docs/03.
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-ferreteria}
+      POSTGRES_USER: ${DB_ADMIN_USERNAME:-ferreteria_admin}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?falta DB_ADMIN_PASSWORD en el .env}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      # Rol con el que conecta la aplicacion. Lo crea el script de arranque.
+      APP_DB_ROLE: ${DB_USERNAME:-ferreteria_app}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?falta DB_PASSWORD en el .env}
+    # Solo para desarrollo. La production no pública este puerto.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-datos:/var/lib/postgresql/data
+      - ./postgres/inicializar-rol.sh:/docker-entrypoint-initdb.d/inicializar-rol.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-ferreteria_app} -d ${DB_DATABASE:-ferreteria}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  redis:
+    image: redis:8.8.3-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    image: ferreteria-api-dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME: "Ferretería Hefesto (desarrollo)"
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${APP_KEY:?copie la API_KEY desde api/.env y pongala tambien en el .env de la raiz}
+      APP_URL: http://localhost:8000
+      APP_WEB_URL: http://localhost:3000
+
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-ferreteria}
+      DB_USERNAME: ${DB_USERNAME:-ferreteria_app}
+      DB_PASSWORD: ${DB_PASSWORD:-secreto-de-desarrollo}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: file
+      SESSION_SECURE_COOKIE: "false"
+
+      LOG_CHANNEL: stderr
+      LOG_LEVEL: debug
+
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:-https://id.ejemplo.cl/application/o/ferreteria/}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
+      AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET:-}
+      AUTHENTIK_REDIRECT_URI: http://localhost:8000/api/v1/acceso/callback
+
+      # En desarrollo las migraciones SI se aplican al arrancar. Es lo que
+      # uno espera al developing.
+      FERRETERIA_CORRER_MIGRACIONES: "true"
+      FERRETERIA_ALERTAS_ENVIO_ACTIVO: "false"
+    volumes:
+      - ../api:/var/www/html
+      - storage-temporal:/var/www/html/storage/framework
+    ports:
+      - "127.0.0.1:8000:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "-s", "http://localhost:8080/api/v1/salud"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *logging
+
+  cola:
+    image: ferreteria-api-dev
+    restart: unless-stopped
+    depends_on:
+      - api
+    command: ["php", "artisan", "schedule:work"]
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_KEY: ${APP_KEY}
+      APP_URL: http://localhost:8000
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-ferreteria}
+      DB_USERNAME: ${DB_USERNAME:-ferreteria_app}
+      DB_PASSWORD: ${DB_PASSWORD:-secreto-de-desarrollo}
+      REDIS_HOST: redis
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      LOG_CHANNEL: stderr
+    volumes:
+      - ../api:/var/www/html
+      - storage-temporal:/var/www/html/storage/framework
+    logging: *logging
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      target: construccion
+    image: ferreteria-web-dev
+    restart: unless-stopped
+    depends_on:
+      - api
+    command: ["npm", "run", "dev"]
+    environment:
+      NUXT_API_BASE: http://api:8080
+      NUXT_PUBLIC_BASE: http://localhost:3000
+      NODE_ENV: development
+    volumes:
+      - ../web:/app
+      - web-nodo-modulos:/app/node_modules
+    ports:
+      - "127.0.0.1:3000:3000"
+    logging: *logging
+
+  # -------------------------------------------------------------------------
+  # Authentik: `server` + `worker` con la misma imagen, y su propia base de
+  # datos.
+  #
+  # Su interfaz de administración se pública solo en `127.0.0.1` y en
+  # desarrollo. En producción no se pública. Ver el compose de producción.
+  # -------------------------------------------------------------------------
+  authentik-postgres:
+    image: postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AUTHENTIK_POSTGRESQL__NAME:-authentik}
+      POSTGRES_USER: ${AUTHENTIK_POSTGRESQL__USER:-authentik}
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-secreto-de-desarrollo}
+    volumes:
+      - authentik-postgres-datos:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTHENTIK_POSTGRESQL__USER:-authentik}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *logging
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2026.8.4
+    restart: unless-stopped
+    command: server
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?falta AUTHENTIK_SECRET_KEY en el .env de desarrollo}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRESQL__USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-secreto-de-desarrollo}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRESQL__NAME:-authentik}
+      AUTHENTIK_BOOTSTRAP__EMAIL: ${AUTHENTIK_BOOTSTRAP__EMAIL:-}
+      AUTHENTIK_BOOTSTRAP__PASSWORD: ${AUTHENTIK_BOOTSTRAP__PASSWORD:-}
+      AUTHENTIK_BOOTSTRAP__TOKEN: ${AUTHENTIK_BOOTSTRAP__TOKEN:-}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    ports:
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - authentik-media:/media
+    logging: *logging
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2026.8.4
+    restart: unless-stopped
+    command: worker
+    depends_on:
+      authentik-postgres:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRESQL__USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-secreto-de-desarrollo}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRESQL__NAME:-authentik}
+    volumes:
+      - authentik-media:/media
+    logging: *logging
+
+volumes:
+  postgres-datos:
+  redis-datos:
+  authentik-postgres-datos:
+  authentik-media:
+  storage-temporal:
+  web-nodo-modulos:
